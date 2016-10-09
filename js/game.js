@@ -28,10 +28,10 @@ let state = {
   hoveredField: null, //{col: number, row: number}
   playerIndex: 0,
   enemyPlayerIndex: 1,
-  
+
   // [{row, col, dirX, dirY}]
   players: clone(PLAYERS_START_POSITIONS),
-  
+
   currentTurn: {
     playerIndex: 0
   }
@@ -42,6 +42,7 @@ let tracer = new Tracer(state.map, COLS, ROWS, gap, gap)
 let debugLinesToRender = []
 let debugRects = []
 let debugEdges = [/*{dirX=-1/0/1, dirY=-1/0/1, col, row}*/]
+let debugPoints = [/*{x, y}*/]
 
 
 let drawBackground = () => {
@@ -86,10 +87,10 @@ let drawBlocks = () => {
 let drawPlayers = () => {
   for (let i = 0; i < state.players.length; ++i) {
     let player = state.players[i]
-    let isEnemy = i === state.enemyPlayerIndex 
+    let isEnemy = i === state.enemyPlayerIndex
     let centerX = player.col * gap + gap/2
     let centerY = player.row * gap + gap/2
-    
+
     ctx.beginPath()
 
     if (state.currentTurn.playerIndex === i) {
@@ -102,7 +103,7 @@ let drawPlayers = () => {
     ctx.fill()
 
     // TODO draw visibility frustum
-    
+
 
     // draw possible move directions
     if (state.currentTurn.playerIndex === i) {
@@ -118,7 +119,7 @@ let onMouseMove = (x, y) => {
 
   state.hoveredField.col = (x - x%gap)/gap
   state.hoveredField.row = (y - y%gap)/gap
-  
+
   updateRayCast(x, y)
 }
 
@@ -151,15 +152,15 @@ let redrawGame = () => {
   drawBackground()
   drawGrid()
   drawBlocks()
-  
+
   ctx.fillStyle = '#f0f'
   for (let rect of debugRects) {
     ctx.beginPath()
     ctx.fillRect(rect.col*gap+gap/4, rect.row*gap+gap/4, gap/2, gap/2)
   }
-  
+
   drawPlayers()
-  
+
   ctx.strokeStyle = '#f0f'
   for (let line of debugLinesToRender) {
     ctx.beginPath()
@@ -167,18 +168,17 @@ let redrawGame = () => {
     ctx.lineTo(line.tx, line.ty)
     ctx.stroke()
   }
-  
+
   ctx.strokeStyle = 'red'
   ctx.lineWidth = 5
   for (let edge of debugEdges) {
     ctx.beginPath()
-    
-    
+
     let ox = edge.col*gap + gap
     let oy = edge.row*gap
     let tx = ox
     let ty = oy + gap
-    
+
     if (edge.angleTo90 === 1) {
       ox = edge.col*gap
       tx = ox + gap
@@ -193,19 +193,19 @@ let redrawGame = () => {
       tx = ox + gap
       oy += gap
     }
-    
-    
-    
+
+
+
     // let cx = edge.col*gap + gap/2
     // let cy = edge.row*gap + gap/2
-    
+
     // let isVert = edge.dirX !== 0
-    
+
     // let ox = edge.col*gap
     // let oy = edge.row*gap
     // let tx = ox+gap
     // let ty = oy
-    
+
     // if (isVert) {
     //   ox += gap
     //   ty += gap
@@ -214,9 +214,17 @@ let redrawGame = () => {
     //   oy += gap
     //   ty += gap
     // }
-    
+
     ctx.moveTo(ox, oy)
     ctx.lineTo(tx, ty)
+    ctx.stroke()
+  }
+
+  for (let point of debugPoints) {
+    ctx.beginPath()
+    ctx.fillStyle = 'red'
+    ctx.arc(point.x, point.y, 4, 0, 2*Math.PI, false)
+    ctx.fill()
     ctx.stroke()
   }
 
@@ -225,7 +233,7 @@ let redrawGame = () => {
 
 const updateRayCast = (targetX, targetY) => {
   const player = state.players[state.currentTurn.playerIndex]
-  
+
   debugLinesToRender.length = 0
   debugRects.length = 0
   debugEdges.length = 0
@@ -237,103 +245,50 @@ const updateRayCast = (targetX, targetY) => {
     ty: targetY
   }
   debugLinesToRender.push(line)
-  
+
   // 1. scan first direction, mark found free (non-block) rect as `current`
   // 2. go to a position next to the found point
   // 3. check if the next position is ray casted
   // 3.1. if yes, then go to 2.
   // 3.2. if no, then set closest raycasted point as `current`
-  
 
-  // _castRayOnBlocks(player, 0)
-  // _castRayOnBlocks(player, 90)
-  // _castRayOnBlocks(player, -90)
-  // _castRayOnBlocks(player, -180)
-  
-  
-  // for (let angle = 0; angle < 360; angle += 5) {
-    // _castRayOnBlocks(player, angle)
-  // }
-  
-  
-  // let angle = 40
-  // _castRayOnBlocks(player, angle)
-  
-  // _castRayOnBlocks(player, 86)
-  _castRayOnBlocks(player, 91)
+
+  _castRayOnBlocks(player, 0)
+  _castRayOnBlocks(player, 90)
+  _castRayOnBlocks(player, -90)
+  _castRayOnBlocks(player, -180)
+
+
+  for (let angle = 0; angle < 360; angle += 1) {
+    _castRayOnBlocks(player, angle)
+  }
 }
 
 function _castRayOnBlocks(from, angle) {
   let res = castRayOnBlocks(from, angle)
-  // let {row, col} = res
 
-  // debugRects.push({
-  //   row,
-  //   col
-  // })
-  
-  // debugEdges.push(res)
-  
   if (res.didHit) {
-    ctx.fillStyle = 'red'
-    ctx.arc(res.point.x, res.point.y, 15, 0, 2*Math.PI, false)
-    ctx.fill()
+    debugPoints.push(res.point)
   }
-
-  console.log(res)
 }
 
 function castRayOnBlocks(from, angle) {
   let {col, row} = from
-  
+
   let ox = col*gap + gap/2
   let oy = row*gap + gap/2
-  
+
   // rotate vector [1, 0]
   let rotX = Math.cos(angle * Math.PI/180)
   let rotY = -Math.sin(angle * Math.PI/180)
-  
-  // debugLinesToRender.push({
-  //   ox: ox, oy: oy,
-  //   tx: ox + rotX*1000,
-  //   ty: oy + rotY*1000
-  // })
-  
-  
-  // while (col >= 0 && row >= 0 && col <= COLS-1 && row <= ROWS-1 && !isPointWall(Math.floor(col+rotX), Math.floor(row+rotY))) {
-  //   col += rotX
-  //   row += rotY
-  // }
-  
-  // console.log(row)
-  // console.log(col)
-  
-  // row = Math.max(Math.min(ROWS-1, Math.ceil(row)), 0)
-  // col = Math.max(Math.min(COLS-1, Math.ceil(col)), 0)
-  
-  // while (angle > 360)
-  //   angle -= 360
-    
-  // while (angle < 0)
-  //   angle += 360
-    
-  // let angleTo90 = Math.ceil((angle+45)/90)
-  
-  // let res = {col, row, angleTo90}
-  
-  // console.log(res)
-  // return res
-  
-  
-  let originPoint = {x: ox, y: oy}
-  let direction = {x: rotX, y: rotY}
-  return tracer.setup(originPoint, direction).getHit()
+
+  return tracer.setupXY(ox, oy, rotX, rotY).getHit()
 }
 
 const updateTurnLogic = () => {
   for (let playerIdx = 0; playerIdx < state.players.length; ++playerIdx) {
     let isNearWall = isPointNearWall(state.players[playerIdx])
-    
+
     if (playerIdx === state.currentTurn.playerIndex) {
       btnPeek.disabled = !isNearWall
     }

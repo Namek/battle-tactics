@@ -129,35 +129,44 @@ let drawPlayers = () => {
   }
 }
 
+function onHoveredFieldChanged(col, row) {
+  if (isFieldAccessibleToMove(state.currentTurn.playerIndex, col, row)) {
+    updatePlayerVisibilityCone(state.playerIndex, col, row)
+  }
+}
+
 let onMouseMove = (x, y) => {
   if (!state.hoveredField) {
     state.hoveredField = {}
   }
 
-  state.hoveredField.col = (x - x%gap)/gap
-  state.hoveredField.row = (y - y%gap)/gap
+  let col = (x - x%gap)/gap
+  let row = (y - y%gap)/gap
+
+  if (state.hoveredField.col !== col || state.hoveredField.row !== row) {
+    onHoveredFieldChanged(col, row)
+  }
+
+  state.hoveredField.col = col
+  state.hoveredField.row = row
 }
 
 let onMouseLeave = () => {
   state.hoveredField = null
+  updatePlayerVisibilityCone(state.playerIndex)
 }
 
 let onMouseClick = (x, y) => {
   let col = (x - x%gap)/gap
   let row = (y - y%gap)/gap
-  let block = { col, row }
 
-  if (!isPointWall(col, row)) {
-    if (!_(state.players).some(block)) {
-      let player = state.players[state.currentTurn.playerIndex]
-      player.col = col
-      player.row = row
+  if (canMoveTo(col, row)) {
+    let player = state.players[state.currentTurn.playerIndex]
+    player.col = col
+    player.row = row
 
-      updateTurnLogic()
-    }
+    updateTurnLogic()
   }
-
-  console.log(isPointNearWall(block))
 
 /*
   let idx = _(blocks).findIndex(block)
@@ -259,18 +268,25 @@ const updateRayCast = (targetX, targetY) => {
   }
 }
 
-function updatePlayerVisibilityCone(playerIndex) {
+function updatePlayerVisibilityCone(playerIndex, col = undefined, row = undefined) {
   const player = state.players[state.currentTurn.playerIndex]
-  let ox = player.col*gap + gap/2
-  let oy = player.row*gap + gap/2
+  let linesCache = renderCache.frustumLinesByPlayer[playerIndex]
 
-  let lines = renderCache.frustumLinesByPlayer[playerIndex]
-  lines.length = 0
+  col = col == undefined ? player.col : col
+  row = row == undefined ? player.row : row
 
+  updateVisibilityCone(col, row, linesCache)
+}
+
+function updateVisibilityCone(col, row, linesCache) {
+  let ox = col*gap + gap/2
+  let oy = row*gap + gap/2
+
+  linesCache.length = 0
   for (let angle = 0; angle < 360; angle += 0.1) {
     let hit = castRayOnBlocks(ox, oy, angle)
 
-    lines.push({
+    linesCache.push({
       ox, oy,
       tx: hit.point.x,
       ty: hit.point.y
@@ -311,6 +327,20 @@ const updateTurnLogic = () => {
   }
 
   elActionPoints.innerHTML = 'Action Points: ' + state.currentTurn.actionPoints
+}
+
+function canMoveTo(col, row) {
+  return !isPointWall(col, row) && !_(state.players).some({ col, row })
+}
+
+function isFieldAccessibleToMove(playerIndex, col, row) {
+  let player = state.players[playerIndex]
+  if (!canMoveTo(col, row)) {
+    return false
+  }
+
+  // TODO check distance between player and desired position (A* algorithm)
+  return true
 }
 
 const isPointWall = (col, row) => {

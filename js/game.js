@@ -44,7 +44,7 @@ let state = {
 }
 
 let renderCache = {
-  frustumByPlayer: {
+  visConeByPlayer: {
     0: {lines: [], point: {col: state.players[0].col, row: state.players[0].row}},
     1: {lines: [], point: {col: state.players[1].col, row: state.players[1].row}}
   },
@@ -86,7 +86,7 @@ let drawBackground = () => {
   }
 
   ctx.strokeStyle = 'rgba(112,128,144,1)'
-  let frustumCache = renderCache.frustumByPlayer[playerIndex]
+  let frustumCache = renderCache.visConeByPlayer[playerIndex]
   for (let line of frustumCache.lines) {
     drawDebugLine(line)
   }
@@ -301,7 +301,7 @@ const updateRayCast = (targetX, targetY) => {
 
 function updatePlayerVisibilityCone(playerIndex, col = undefined, row = undefined) {
   const player = state.players[playerIndex]
-  let frustumCache = renderCache.frustumByPlayer[playerIndex]
+  let frustumCache = renderCache.visConeByPlayer[playerIndex]
 
   col = col == undefined ? player.col : col
   row = row == undefined ? player.row : row
@@ -375,10 +375,8 @@ function castRayOnBlocks(ox, oy, angle) {
 
 const updateTurnLogic = () => {
   for (let playerIdx = 0; playerIdx < state.players.length; ++playerIdx) {
-    let isNearWall = isPointNearWall(state.players[playerIdx])
-
     if (playerIdx === state.currentTurn.playerIndex) {
-      btnPeek.disabled = !isNearWall
+      btnPeek.disabled = !canPlayerPeek(playerIdx)
     }
 
     updatePlayerVisibilityCone(playerIdx)
@@ -408,9 +406,59 @@ function isFieldAccessibleToMove(playerIndex, col, row) {
   return state.currentTurn.actionPoints >= neededActionPoints
 }
 
+function canPlayerPeek(playerIndex) {
+  let player = state.players[playerIndex]
+  let walls = findNearPeekableWalls(player.col, player.row)
+
+  return walls.length > 0
+}
+
 const isPointWall = (col, row) => {
   return col >= COLS || col < 0 || row < 0 || row >= ROWS
     || state.map[row][col] === true
+}
+
+function findNearPeekableWalls(col, row) {
+  const checks = [
+    {col: col-1, row},
+    {col: col+1, row},
+    {col, row: row-1},
+    {col, row: row+1}
+  ]
+
+  return checks.filter(c => {
+    if (c.col < 0 || c.row < 0 || c.col >= COLS || c.row >= ROWS)
+      return false
+
+    return isPointWall(c.col, c.row) && isCellPeekable(col, row, c.col, c.row)
+  })
+}
+
+// assuming that:
+// 1. given cell has wall
+// 2. viewer point is a neighbour to it
+function isCellPeekable(viewerCol, viewerRow, cellCol, cellRow) {
+  let dirX = cellCol - viewerCol
+  let dirY = cellRow - viewerRow
+
+  console.assert(Math.abs(dirX)*2 + Math.abs(dirY)*2 === 2 , "peekable cell should adjoint to viewer")
+
+  if (dirY !== 0) {
+    if (!isPointWall(cellCol+1, cellRow))
+      return true
+
+    if (!isPointWall(cellCol-1, cellRow))
+      return true
+  }
+  else if (dirX !== 0) {
+    if (!isPointWall(cellCol, cellRow-1))
+      return true
+
+    if (!isPointWall(cellCol, cellRow+1))
+      return true
+  }
+
+  return false
 }
 
 // if at the point itself is a wall then return false

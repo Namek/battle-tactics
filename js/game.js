@@ -68,6 +68,12 @@ let drawBackground = () => {
   ctx.fillStyle = '#eee'
   ctx.fillRect(0,0,width,height)
 
+  ctx.strokeStyle = 'gray'
+  let playerIndex = state.currentTurn.playerIndex
+  for (let line of renderCache.frustumLinesByPlayer[playerIndex]) {
+    drawDebugLine(line)
+  }
+
   if (!!state.hoveredField) {
     ctx.fillStyle = 'steelblue'
     let x = state.hoveredField.col*gap
@@ -77,12 +83,6 @@ let drawBackground = () => {
 }
 
 let drawGrid = () => {
-  ctx.strokeStyle = 'gray'
-  let playerIndex = state.currentTurn.playerIndex
-  for (let line of renderCache.frustumLinesByPlayer[playerIndex]) {
-    drawDebugLine(line)
-  }
-
   ctx.beginPath()
   ctx.strokeStyle = GRID_COLOR
   for (let y = gap; y < height; y+=gap) {
@@ -126,13 +126,6 @@ let drawPlayers = () => {
     ctx.fillStyle = isEnemy ? ENEMY_COLOR : PLAYER_COLOR
     ctx.arc(centerX, centerY, PLAYER_RADIUS, 0, 2*Math.PI, false)
     ctx.fill()
-
-
-    // draw possible move directions
-    if (state.currentTurn.playerIndex === i) {
-      // TODO
-
-    }
   }
 }
 
@@ -150,11 +143,19 @@ let onMouseLeave = () => {
 }
 
 let onMouseClick = (x, y) => {
-  let block = {
-    col: (x - x%gap)/gap,
-    row: (y - y%gap)/gap
-  }
+  let col = (x - x%gap)/gap
+  let row = (y - y%gap)/gap
+  let block = { col, row }
 
+  if (!isPointWall(col, row)) {
+    if (!_(state.players).some(block)) {
+      let player = state.players[state.currentTurn.playerIndex]
+      player.col = col
+      player.row = row
+
+      updateTurnLogic()
+    }
+  }
 
   console.log(isPointNearWall(block))
 

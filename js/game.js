@@ -1,4 +1,4 @@
-/* global ROWS, COLS, PLAYERS_START_POSITIONS, clone, MAP1, Tracer, _ */
+/* global ROWS, COLS, PLAYERS_START_POSITIONS, clone, MAP1, Tracer, astar, _ */
 let canvas = document.getElementById('app')
 let ctx = canvas.getContext('2d')
 
@@ -44,7 +44,10 @@ let state = {
 }
 
 let renderCache = {
-  frustumLinesByPlayer: {0: [], 1: []}
+  frustumByPlayer: {
+    0: {lines: [], point: {col: state.players[0].col, row: state.players[0].row}},
+    1: {lines: [], point: {col: state.players[1].col, row: state.players[1].row}}
+  }
 }
 
 let tracer = new Tracer(state.map, COLS, ROWS, gap, gap)
@@ -70,9 +73,12 @@ let drawBackground = () => {
 
   ctx.strokeStyle = 'gray'
   let playerIndex = state.currentTurn.playerIndex
-  for (let line of renderCache.frustumLinesByPlayer[playerIndex]) {
+  let frustumCache = renderCache.frustumByPlayer[playerIndex]
+  for (let line of frustumCache.lines) {
     drawDebugLine(line)
   }
+  ctx.fillStyle = 'yellow'
+  drawDebugRect(frustumCache.point)
 
   if (!!state.hoveredField) {
     ctx.fillStyle = 'steelblue'
@@ -270,28 +276,31 @@ const updateRayCast = (targetX, targetY) => {
 
 function updatePlayerVisibilityCone(playerIndex, col = undefined, row = undefined) {
   const player = state.players[state.currentTurn.playerIndex]
-  let linesCache = renderCache.frustumLinesByPlayer[playerIndex]
+  let frustumCache = renderCache.frustumByPlayer[playerIndex]
 
   col = col == undefined ? player.col : col
   row = row == undefined ? player.row : row
 
-  updateVisibilityCone(col, row, linesCache)
+  updateVisibilityCone(col, row, frustumCache)
 }
 
-function updateVisibilityCone(col, row, linesCache) {
+function updateVisibilityCone(col, row, frustumCache) {
   let ox = col*gap + gap/2
   let oy = row*gap + gap/2
 
-  linesCache.length = 0
+  frustumCache.lines.length = 0
   for (let angle = 0; angle < 360; angle += 0.1) {
     let hit = castRayOnBlocks(ox, oy, angle)
 
-    linesCache.push({
+    frustumCache.lines.push({
       ox, oy,
       tx: hit.point.x,
       ty: hit.point.y
     })
   }
+
+  frustumCache.point.col = col
+  frustumCache.point.row = row
 }
 
 function _castRayOnBlocks(ox, oy, angle) {
@@ -334,18 +343,24 @@ function canMoveTo(col, row) {
 }
 
 function isFieldAccessibleToMove(playerIndex, col, row) {
-  let player = state.players[playerIndex]
   if (!canMoveTo(col, row)) {
     return false
   }
 
-  // TODO check distance between player and desired position (A* algorithm)
-  return true
+  let player = state.players[playerIndex]
+  let path = findPath(player.col, player.row, col, row)
+
+  if (path.length === 0) {
+    return false
+  }
+
+  let neededActionPoints = AP_MOVE * path.length
+  return state.currentTurn.actionPoints >= neededActionPoints
 }
 
 const isPointWall = (col, row) => {
   return col >= COLS || col < 0 || row < 0 || row >= ROWS
-    && state.map[row][col] === true
+    || state.map[row][col] === true
 }
 
 // if at the point itself is a wall then return false
@@ -365,7 +380,10 @@ const isPointNearWall = ({col, row}) => {
   return false
 }
 
-
+// @return [{x, y}]
+function findPath(colFrom, rowFrom, colTo, rowTo) {
+  return astar.search(clone(state.map), colFrom, rowFrom, colTo, rowTo)
+}
 
 
 updateTurnLogic()

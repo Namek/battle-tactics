@@ -39,10 +39,19 @@ let state = {
 
 let tracer = new Tracer(state.map, COLS, ROWS, gap, gap)
 
-let debugLinesToRender = []
-let debugRects = []
-let debugEdges = [/*{dirX=-1/0/1, dirY=-1/0/1, col, row}*/]
-let debugPoints = [/*{x, y}*/]
+let debugShapesOneFrame = {
+  lines: [],
+  rects: [],
+  edges: [/*{dirX=-1/0/1, dirY=-1/0/1, col, row}*/],
+  points: [/*{x, y}*/]
+}
+
+let debugShapesPersisting = {
+  lines: [],
+  rects: [],
+  edges: [/*{dirX=-1/0/1, dirY=-1/0/1, col, row}*/],
+  points: [/*{x, y}*/]
+}
 
 
 let drawBackground = () => {
@@ -119,8 +128,6 @@ let onMouseMove = (x, y) => {
 
   state.hoveredField.col = (x - x%gap)/gap
   state.hoveredField.row = (y - y%gap)/gap
-
-  updateRayCast(x, y)
 }
 
 let onMouseLeave = () => {
@@ -147,86 +154,63 @@ let onMouseClick = (x, y) => {
   console.log(JSON.stringify(blocks))*/
 }
 
+function onKeyDown(evt) {
+  updateRayCast(evt.clientX, evt.clientY)
+}
+
+
+function drawDebugLine(line) {
+  ctx.beginPath()
+  ctx.moveTo(line.ox, line.oy)
+  ctx.lineTo(line.tx, line.ty)
+  ctx.stroke()
+}
+
+function drawDebugRect(rect) {
+  ctx.beginPath()
+  ctx.fillRect(rect.col*gap+gap/4, rect.row*gap+gap/4, gap/2, gap/2)
+}
+
+function drawDebugPoint(point) {
+  ctx.beginPath()
+  ctx.arc(point.x, point.y, 4, 0, 2*Math.PI, false)
+  ctx.fill()
+}
+
 let redrawGame = () => {
   ctx.clearRect(0, 0, width, height)
   drawBackground()
   drawGrid()
   drawBlocks()
 
-  ctx.fillStyle = '#f0f'
-  for (let rect of debugRects) {
-    ctx.beginPath()
-    ctx.fillRect(rect.col*gap+gap/4, rect.row*gap+gap/4, gap/2, gap/2)
-  }
-
   drawPlayers()
 
+  ctx.fillStyle = '#f0f'
+  for (let rect of debugShapesOneFrame.rects) {
+    drawDebugRect(rect)
+  }
+  for (let rect of debugShapesPersisting.rects) {
+    drawDebugRect(rect)
+  }
+  debugShapesOneFrame.rects.length = 0
+
   ctx.strokeStyle = '#f0f'
-  for (let line of debugLinesToRender) {
-    ctx.beginPath()
-    ctx.moveTo(line.ox, line.oy)
-    ctx.lineTo(line.tx, line.ty)
-    ctx.stroke()
+  for (let line of debugShapesOneFrame.lines) {
+    drawDebugLine(line)
   }
-
-  ctx.strokeStyle = 'red'
-  ctx.lineWidth = 5
-  for (let edge of debugEdges) {
-    ctx.beginPath()
-
-    let ox = edge.col*gap + gap
-    let oy = edge.row*gap
-    let tx = ox
-    let ty = oy + gap
-
-    if (edge.angleTo90 === 1) {
-      ox = edge.col*gap
-      tx = ox + gap
-      ty = oy
-    }
-    else if (edge.angleTo90 === 2) {
-      ox = edge.col*gap
-      tx = ox
-    }
-    else if (edge.angleTo90 === 3) {
-      ox = edge.col*gap
-      tx = ox + gap
-      oy += gap
-    }
-
-
-
-    // let cx = edge.col*gap + gap/2
-    // let cy = edge.row*gap + gap/2
-
-    // let isVert = edge.dirX !== 0
-
-    // let ox = edge.col*gap
-    // let oy = edge.row*gap
-    // let tx = ox+gap
-    // let ty = oy
-
-    // if (isVert) {
-    //   ox += gap
-    //   ty += gap
-    // }
-    // else if (!isVert && edge.dirY > 0) {
-    //   oy += gap
-    //   ty += gap
-    // }
-
-    ctx.moveTo(ox, oy)
-    ctx.lineTo(tx, ty)
-    ctx.stroke()
+  for (let line of debugShapesPersisting.lines) {
+    drawDebugLine(line)
   }
+  debugShapesOneFrame.lines.length = 0
 
-  for (let point of debugPoints) {
-    ctx.beginPath()
-    ctx.fillStyle = 'red'
-    ctx.arc(point.x, point.y, 4, 0, 2*Math.PI, false)
-    ctx.fill()
-    ctx.stroke()
+  ctx.fillStyle = 'red'
+  for (let point of debugShapesPersisting.points) {
+    drawDebugPoint(point)
   }
+  for (let point of debugShapesOneFrame.points) {
+    drawDebugPoint(point)
+  }
+  debugShapesOneFrame.length = 0
 
   window.requestAnimationFrame(redrawGame)
 }
@@ -234,18 +218,15 @@ let redrawGame = () => {
 const updateRayCast = (targetX, targetY) => {
   const player = state.players[state.currentTurn.playerIndex]
 
-  debugLinesToRender.length = 0
-  debugRects.length = 0
-  debugEdges.length = 0
-
   let line = {
     ox: player.col*gap + gap/2,
     oy: player.row*gap + gap/2,
     tx: targetX,
     ty: targetY
   }
-  debugLinesToRender.push(line)
+  debugShapesPersisting.lines.push(line)
 
+  // TODO possible algorithm:
   // 1. scan first direction, mark found free (non-block) rect as `current`
   // 2. go to a position next to the found point
   // 3. check if the next position is ray casted
@@ -253,31 +234,28 @@ const updateRayCast = (targetX, targetY) => {
   // 3.2. if no, then set closest raycasted point as `current`
 
 
-  _castRayOnBlocks(player, 0)
-  _castRayOnBlocks(player, 90)
-  _castRayOnBlocks(player, -90)
-  _castRayOnBlocks(player, -180)
-
-
   for (let angle = 0; angle < 360; angle += 1) {
-    _castRayOnBlocks(player, angle)
+    let ox = player.col*gap + gap/2
+    let oy = player.row*gap + gap/2
+
+    _castRayOnBlocks(ox, oy, angle)
   }
 }
 
-function _castRayOnBlocks(from, angle) {
-  let res = castRayOnBlocks(from, angle)
+function _castRayOnBlocks(ox, oy, angle) {
+  let res = castRayOnBlocks(ox, oy, angle)
 
-  if (res.didHit) {
-    debugPoints.push(res.point)
+  if (res.didHitWall) {
+    debugShapesPersisting.points.push(res.point)
   }
+
+  debugShapesPersisting.lines.push({
+    ox, oy,
+    tx: res.point.x, ty: res.point.y
+  })
 }
 
-function castRayOnBlocks(from, angle) {
-  let {col, row} = from
-
-  let ox = col*gap + gap/2
-  let oy = row*gap + gap/2
-
+function castRayOnBlocks(ox, oy, angle) {
   // rotate vector [1, 0]
   let rotX = Math.cos(angle * Math.PI/180)
   let rotY = -Math.sin(angle * Math.PI/180)
@@ -326,3 +304,4 @@ redrawGame()
 canvas.addEventListener('mousemove', evt => onMouseMove(evt.layerX, evt.layerY))
 canvas.addEventListener('mouseleave', evt => onMouseLeave())
 canvas.addEventListener('click', evt => onMouseClick(evt.layerX, evt.layerY))
+document.addEventListener('keydown', evt => onKeyDown(evt))

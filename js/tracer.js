@@ -42,17 +42,17 @@ class Tracer {
 	getHit() {
     let hit = {
 			point: {x: 0, y: 0},
-			didHit: false
+			didHitWall: false
 		}
 		this.hit(hit)
     return hit
 	}
 
 	/**
-	 * @param hit {didHit: boolean, point: {x: float, y: float}, wallType: HORZ/VERT}
+	 * @param hit {didHitWall: boolean, point: {x: float, y: float}, wallType: HORZ/VERT}
 	 */
 	hit(hit) {
-		hit.didHit = false
+		hit.didHitWall = false
 
 		let horzDir = Math.sign(this.direction.x)
 		let vertDir = Math.sign(this.direction.y)
@@ -114,8 +114,11 @@ class Tracer {
 				col += horzDir
 			}
 
-			if (this.isWall(col, row)) {
-				hit.didHit = true
+			let isOutsideMap = col < 0 || col >= this.colsCount || row < 0 || row >= this.rowsCount
+			let isWall = !isOutsideMap && this.isWall(col, row)
+
+			if (isWall || isOutsideMap) {
+				hit.didHitWall = isWall
 
 				if (isVerticalMove) {
 					hit.point.x = this.origin.x
@@ -144,10 +147,6 @@ class Tracer {
 	}
 
 	isWall(col, row) {
-		// let edges of map be walls
-		if (col < 0 || col >= this.colsCount || row < 0 || row >= this.rowsCount)
-			return true
-
 		return this.walls[row][col] === WALL
 	}
 

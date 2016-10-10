@@ -47,6 +47,10 @@ let renderCache = {
   frustumByPlayer: {
     0: {lines: [], point: {col: state.players[0].col, row: state.players[0].row}},
     1: {lines: [], point: {col: state.players[1].col, row: state.players[1].row}}
+  },
+  availableFieldsByPlayer: {
+    0: [/*{col, row}*/],
+    1: []
   }
 }
 
@@ -71,12 +75,22 @@ let drawBackground = () => {
   ctx.fillStyle = '#eee'
   ctx.fillRect(0,0,width,height)
 
-  ctx.strokeStyle = 'gray'
   let playerIndex = state.currentTurn.playerIndex
+
+  const availableFields = renderCache.availableFieldsByPlayer[playerIndex]
+  ctx.fillStyle = 'rgba(188,188,188,1)'
+  for (let field of availableFields) {
+    let x = field.col*gap
+    let y = field.row*gap
+    ctx.fillRect(x, y, gap, gap)
+  }
+
+  ctx.strokeStyle = 'rgba(112,128,144,1)'
   let frustumCache = renderCache.frustumByPlayer[playerIndex]
   for (let line of frustumCache.lines) {
     drawDebugLine(line)
   }
+
   ctx.fillStyle = 'yellow'
   drawDebugRect(frustumCache.point)
 
@@ -102,6 +116,17 @@ let drawGrid = () => {
   }
   ctx.lineWidth = 1
   ctx.stroke()
+
+  // mark available fields
+  let playerIndex = state.currentTurn.playerIndex
+  const availableFields = renderCache.availableFieldsByPlayer[playerIndex]
+  ctx.strokeStyle = 'black'
+  ctx.lineWidth = 1
+  for (let field of availableFields) {
+    let x = field.col*gap
+    let y = field.row*gap
+    ctx.strokeRect(x, y, gap, gap)
+  }
 }
 
 let drawBlocks = () => {
@@ -275,7 +300,7 @@ const updateRayCast = (targetX, targetY) => {
 }
 
 function updatePlayerVisibilityCone(playerIndex, col = undefined, row = undefined) {
-  const player = state.players[state.currentTurn.playerIndex]
+  const player = state.players[playerIndex]
   let frustumCache = renderCache.frustumByPlayer[playerIndex]
 
   col = col == undefined ? player.col : col
@@ -301,6 +326,30 @@ function updateVisibilityCone(col, row, frustumCache) {
 
   frustumCache.point.col = col
   frustumCache.point.row = row
+}
+
+function updatePlayerAvailableFields(playerIndex) {
+  const player = state.players[playerIndex]
+  const availableFields = renderCache.availableFieldsByPlayer[playerIndex]
+  const maxMoves = Math.floor(state.currentTurn.actionPoints / AP_MOVE)
+
+  const left = Math.max(0, player.col - maxMoves)
+  const right = Math.min(COLS - 1, player.col + maxMoves)
+  const top = Math.max(0, player.row - maxMoves)
+  const bottom = Math.min(ROWS - 1, player.row + maxMoves)
+
+  availableFields.length = 0
+
+  for (let row = top; row <= bottom; ++row) {
+    for (let col = left; col <= right; ++col) {
+      let path = findPath(player.col, player.row, col, row)
+      let neededActionPoints = AP_MOVE * path.length
+
+      if (state.currentTurn.actionPoints >= neededActionPoints) {
+        availableFields.push({ col, row })
+      }
+    }
+  }
 }
 
 function _castRayOnBlocks(ox, oy, angle) {
@@ -333,6 +382,7 @@ const updateTurnLogic = () => {
     }
 
     updatePlayerVisibilityCone(playerIdx)
+    updatePlayerAvailableFields(playerIdx)
   }
 
   elActionPoints.innerHTML = 'Action Points: ' + state.currentTurn.actionPoints

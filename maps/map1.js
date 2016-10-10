@@ -12,6 +12,6 @@ for (let rowIdx = 0; rowIdx < ROWS; ++rowIdx) {
 }
 
 const PLAYERS_START_POSITIONS = [
-  {row: 1, col: 1, dirX: 1, dirY: 0},
-  {row: ROWS-2, col: COLS-2, dirX: -1, dirY: 0}
+  {row: 1, col: 1},
+  {row: ROWS-2, col: COLS-2}
 ]

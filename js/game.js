@@ -34,7 +34,7 @@ let state = {
   playerIndex: 0,
   enemyPlayerIndex: 1,
 
-  // [{row, col, dirX, dirY}]
+  // [{row, col}]
   players: clone(PLAYERS_START_POSITIONS),
 
   currentTurn: {
@@ -154,6 +154,7 @@ let onMouseClick = (x, y) => {
     col: (x - x%gap)/gap,
     row: (y - y%gap)/gap
   }
+
 
   console.log(isPointNearWall(block))
 

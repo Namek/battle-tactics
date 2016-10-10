@@ -3,11 +3,15 @@
 </head>
 <body>
   <canvas id="app" width="500" height="500"></canvas>
+  <br/>
 
   <div class="btns">
     <button id="btn-peek">Peek</button>
     <button id="btn-spot">Fire!</button>
+
+    <span id="action-points"></span>
   </div>
+
 
   <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.16.4/lodash.min.js"></script>
   <script type="text/javascript" src="maps/map1.js"></script>
@@ -22,10 +26,15 @@
 
     .btns {
       margin-top: 20px;
+      display: inline-block;
     }
 
     .btns button {
       font-size: 1.5em;
+    }
+
+    #action-points {
+      margin-left: 100px;
     }
   </style>
 </body>

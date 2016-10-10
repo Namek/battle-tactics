@@ -4,6 +4,7 @@ let ctx = canvas.getContext('2d')
 
 const btnPeek = document.querySelector('#btn-peek')
 const btnSpot = document.querySelector('#btn-spot')
+const elActionPoints = document.querySelector('#action-points')
 
 const gap = 30
 const VISIBILITY_ANGLE = 90
@@ -21,6 +22,10 @@ const PLAYER_COLOR = 'steelblue'
 const ENEMY_COLOR = 'red'
 const CURRENT_PLAYER_BACKGROUND = 'yellow'
 
+const ACTION_POINTS = 5
+const AP_MOVE = 1
+const AP_PEEK = 2
+const AP_SHOOT = 3
 
 
 let state = {
@@ -33,8 +38,13 @@ let state = {
   players: clone(PLAYERS_START_POSITIONS),
 
   currentTurn: {
-    playerIndex: 0
+    playerIndex: 0,
+    actionPoints: ACTION_POINTS
   }
+}
+
+let renderCache = {
+  frustumLinesByPlayer: {0: [], 1: []}
 }
 
 let tracer = new Tracer(state.map, COLS, ROWS, gap, gap)
@@ -67,6 +77,12 @@ let drawBackground = () => {
 }
 
 let drawGrid = () => {
+  ctx.strokeStyle = 'gray'
+  let playerIndex = state.currentTurn.playerIndex
+  for (let line of renderCache.frustumLinesByPlayer[playerIndex]) {
+    drawDebugLine(line)
+  }
+
   ctx.beginPath()
   ctx.strokeStyle = GRID_COLOR
   for (let y = gap; y < height; y+=gap) {
@@ -111,12 +127,11 @@ let drawPlayers = () => {
     ctx.arc(centerX, centerY, PLAYER_RADIUS, 0, 2*Math.PI, false)
     ctx.fill()
 
-    // TODO draw visibility frustum
-
 
     // draw possible move directions
     if (state.currentTurn.playerIndex === i) {
       // TODO
+
     }
   }
 }
@@ -242,6 +257,25 @@ const updateRayCast = (targetX, targetY) => {
   }
 }
 
+function updatePlayerVisibilityCone(playerIndex) {
+  const player = state.players[state.currentTurn.playerIndex]
+  let ox = player.col*gap + gap/2
+  let oy = player.row*gap + gap/2
+
+  let lines = renderCache.frustumLinesByPlayer[playerIndex]
+  lines.length = 0
+
+  for (let angle = 0; angle < 360; angle += 0.1) {
+    let hit = castRayOnBlocks(ox, oy, angle)
+
+    lines.push({
+      ox, oy,
+      tx: hit.point.x,
+      ty: hit.point.y
+    })
+  }
+}
+
 function _castRayOnBlocks(ox, oy, angle) {
   let res = castRayOnBlocks(ox, oy, angle)
 
@@ -270,7 +304,11 @@ const updateTurnLogic = () => {
     if (playerIdx === state.currentTurn.playerIndex) {
       btnPeek.disabled = !isNearWall
     }
+
+    updatePlayerVisibilityCone(playerIdx)
   }
+
+  elActionPoints.innerHTML = 'Action Points: ' + state.currentTurn.actionPoints
 }
 
 const isPointWall = (col, row) => {

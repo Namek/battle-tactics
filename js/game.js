@@ -6,9 +6,10 @@ function $d(query) {
   return document.querySelector(query)
 }
 
-const btnPeek = $d('#btn-peek')
-const btnSpot = $d('#btn-spot')
 const btnRemoveLastAction = $d('#btn-remove-last-action')
+const btnWait = $d('#btn-wait')
+const btnPeek = $d('#btn-peek')
+const btnFire = $d('#btn-fire')
 const btnFinishTurn = $d('#btn-finish-turn')
 const elActionPoints = $d('#action-points')
 const elActionList = $d('#action-list')
@@ -31,7 +32,8 @@ const PLAYER_COLOR = 'steelblue'
 const ENEMY_COLOR = 'red'
 const CURRENT_PLAYER_BACKGROUND = 'yellow'
 
-const ACTION_POINTS = 5
+const MAX_ACTION_POINTS = 5
+const AP_WAIT = 0
 const AP_MOVE = 1
 const AP_PEEK = 2
 const AP_SHOOT = 3
@@ -39,6 +41,20 @@ const AP_SHOOT = 3
 const ACTION_MOVE = 'move'
 const ACTION_PEEK = 'peek'
 const ACTION_SHOOT = 'shoot'
+const ACTION_WAIT = 'wait'
+
+const actionToCost = {
+  [ACTION_WAIT]: AP_WAIT,
+  [ACTION_MOVE]: AP_MOVE,
+  [ACTION_PEEK]: AP_PEEK,
+  [ACTION_SHOOT]: AP_SHOOT
+}
+
+function calcAvailableActionPoints(playerIndex) {
+  return MAX_ACTION_POINTS - state.currentTurnByPlayer[playerIndex].actions
+    .map(action => actionToCost[action.type])
+    .reduce((total, points) => total + points, 0)
+}
 
 
 let state = {
@@ -50,17 +66,14 @@ let state = {
   // [{row, col}]
   players: clone(PLAYERS_START_POSITIONS),
 
-
   activePlayerIndex: 0,
 
   currentTurnByPlayer: {
     0: {
-      actions: [],
-      actionPoints: ACTION_POINTS
+      actions: [/* { type: ACTION_*, col?, row? } */]
     },
     1: {
-      actions: [],
-      actionPoints: ACTION_POINTS
+      actions: []
     }
   }
 }
@@ -249,6 +262,30 @@ function onKeyDown(evt) {
   //updateRayCast(evt.clientX, evt.clientY)
 }
 
+function onRemoveLastAction() {
+  let playerIndex = state.activePlayerIndex
+  let actions = state.currentTurnByPlayer[playerIndex].actions
+  let player = state.players[playerIndex]
+
+  if (actions.length > 0) {
+    let action = actions.pop()
+    if (action.type === ACTION_MOVE) {
+      player.col = action.prevCol
+      player.row = action.prevRow
+    }
+  }
+
+  updateTurnLogicAndVisuals()
+}
+
+function onWait() {
+  let currentTurn = state.currentTurnByPlayer[state.activePlayerIndex]
+  currentTurn.actions.push({
+    type: ACTION_WAIT
+  })
+  updateTurnLogicAndVisuals()
+}
+
 function onPeekHovered() {
   let playerIndex = state.activePlayerIndex
   let player = state.players[playerIndex]
@@ -262,18 +299,26 @@ function onPeekLeave() {
 }
 
 function onPeek() {
-  // TODO spend action points
+  let currentTurn = state.currentTurnByPlayer[state.activePlayerIndex]
+  currentTurn.actions.push({
+    type: ACTION_PEEK
+  })
+  updateTurnLogicAndVisuals()
 }
 
-function onRemoveLastAction() {
-  // TODO
+function onFire() {
+  let currentTurn = state.currentTurnByPlayer[state.activePlayerIndex]
+  currentTurn.actions.push({
+    type: ACTION_FIRE
+  })
+  updateTurnLogicAndVisuals()
 }
 
 function onFinishTurn() {
   let newPlayerIndex = (state.activePlayerIndex+1) % 2
 
   if (newPlayerIndex === 0) {
-    // TODO all player spent action points, simulate turn and then give back action points
+    simulateTurn()
   }
 
   state.activePlayerIndex = newPlayerIndex
@@ -389,7 +434,8 @@ function updatePlayerAvailableFields(playerIndex) {
   const player = state.players[playerIndex]
   const playerTurn = state.currentTurnByPlayer[playerIndex]
   const availableFields = renderCache.availableFieldsByPlayer[playerIndex]
-  const maxMoves = Math.floor(playerTurn.actionPoints / AP_MOVE)
+  const availableActionPoints = calcAvailableActionPoints(playerIndex)
+  const maxMoves = Math.floor(availableActionPoints / AP_MOVE)
 
   const left = Math.max(0, player.col - maxMoves)
   const right = Math.min(COLS - 1, player.col + maxMoves)
@@ -403,7 +449,7 @@ function updatePlayerAvailableFields(playerIndex) {
       let path = findPath(player.col, player.row, col, row)
       let neededActionPoints = AP_MOVE * path.length
 
-      if (playerTurn.actionPoints >= neededActionPoints) {
+      if (availableActionPoints >= neededActionPoints) {
         availableFields.push({ col, row })
       }
     }
@@ -499,7 +545,63 @@ const updateTurnLogicAndVisuals = () => {
   }
 
   let activePlayerTurn = state.currentTurnByPlayer[state.activePlayerIndex]
-  elActionPoints.innerHTML = 'Action Points: ' + activePlayerTurn.actionPoints
+  elActionPoints.innerHTML = calcAvailableActionPoints(state.activePlayerIndex)
+
+  let actionsStr = '', actions = activePlayerTurn.actions
+  for (let ai = 0; ai < MAX_ACTION_POINTS; ++ai) {
+    actionsStr += (ai+1) + ': '
+    actionsStr += ai < actions.length ? actions[ai].type : '*'
+    actionsStr += '\r\n'
+  }
+  elActionList.innerHTML = actionsStr
+}
+
+function simulateTurn() {
+  const players = state.players
+  const playersCount = players.length
+
+  let timelineByPlayer = _.range(playersCount)
+    .map(playerIndex => {
+      let timeline = clone(state.currentTurnByPlayer[playerIndex].actions)
+
+      for (let i = timeline.length; i < MAX_ACTION_POINTS; ++i) {
+        let prevAction = i > 0 ? timeline[i-1].type : ACTION_WAIT
+        let newAction = prevAction === ACTION_PEEK || prevAction === ACTION_SHOOT ? prevAction : ACTION_WAIT
+        timeline[i] = {
+          type: newAction
+        }
+      }
+
+      return timeline
+    })
+
+  let step = 0
+
+  do {
+    // 1. mark who is peeking this round
+    let currentPeekers = _.range(playersCount)
+      .filter(pi => timelineByPlayer[pi][step] === ACTION_PEEK)
+
+    // 2. simulate moves/firing
+    for (let pi = 0; pi > playersCount; ++pi) {
+      let timeline = timelineByPlayer[pi]
+      let action = timeline[step]
+
+      // TODO check if this player is being spotted (by peek or fire action)
+      // if he's still alive then proceed with moving  
+      // Note: if player is shooting when enemy is shooting at him too, then both should die 
+
+
+      if (action === ACTION_MOVE) {
+
+      }
+      else if (action === ACTION_SHOOT) {
+
+      }
+    }
+
+    ++step
+  } while (step < MAX_ACTION_POINTS)
 }
 
 function movePlayerIfPossible(playerIndex, col, row) {
@@ -510,11 +612,26 @@ function movePlayerIfPossible(playerIndex, col, row) {
   }
 
   let player = state.players[playerIndex]
+  let playerTurn = state.currentTurnByPlayer[playerIndex]
+
+  let prevCol = player.col
+  let prevRow = player.row
+
+  for (let field of moveConds.path) {
+    playerTurn.actions.push({
+      type: ACTION_MOVE,
+      col: field.x,
+      row: field.y,
+      prevCol,
+      prevRow
+    })
+
+    prevCol = field.x
+    prevRow = field.y
+  }
+
   player.col = col
   player.row = row
-
-  let activePlayerTurn = state.currentTurnByPlayer[state.activePlayerIndex]
-  activePlayerTurn.actionPoints -= moveConds.neededActionPoints
 }
 
 function isStandableField(col, row) {
@@ -532,9 +649,10 @@ function calcPlayerMoveConditions(playerIndex, col, row) {
   if (res.isStandableField) {
     let player = state.players[playerIndex]
     let activePlayerTurn = state.currentTurnByPlayer[playerIndex]
+    let availableActionPoints = calcAvailableActionPoints(playerIndex)
     res.path = findPath(player.col, player.row, col, row)
     res.neededActionPoints = AP_MOVE * res.path.length
-    res.canMoveTo = activePlayerTurn.actionPoints >= res.neededActionPoints
+    res.canMoveTo = availableActionPoints >= res.neededActionPoints
   }
 
   return res
@@ -686,9 +804,11 @@ redrawGame()
   $l(canvas, 'click', evt => onMouseClick(evt.layerX, evt.layerY))
   $l(document, 'keydown', evt => onKeyDown(evt))
 
+  $l(btnRemoveLastAction, 'click', evt => onRemoveLastAction())
+  $l(btnWait, 'click', evt => onWait())
   $l(btnPeek, 'mouseenter', evt => onPeekHovered())
   $l(btnPeek, 'mouseleave', evt => onPeekLeave())
   $l(btnPeek, 'click', evt => onPeek())
-  $l(btnRemoveLastAction, 'click', evt => onRemoveLastAction())
+  $l(btnFire, 'click', evt => onFire())
   $l(btnFinishTurn, 'click', evt => onFinishTurn())
 })()

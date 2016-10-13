@@ -28,6 +28,7 @@ Each turn consists of:
 
 
 More detailed - on every step simulate actions for each unit:
+
  1. if any unit is going to start peeking this round, then turn the peek mode for them
 
  2. fire/move simulation:
@@ -38,3 +39,4 @@ More detailed - on every step simulate actions for each unit:
 
   - fire:
     - take down any spotted unit on current step
+    - if enemy unit is firing at us at the same time then both units are down

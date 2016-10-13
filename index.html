@@ -5,19 +5,20 @@
   <canvas id="app" width="500" height="500"></canvas>
   <br/>
 
-  <div class="btns">
+  <div class="row">
+    <button id="btn-remove-last-action" title="Remove last action">&#8617;</button>
+    <button id="btn-wait">Wait</button>
     <button id="btn-peek">Peek</button>
-    <button id="btn-spot">Fire!</button>
-
-    <span id="action-points"></span>
+    <button id="btn-fire">Fire!</button>
   </div>
 
-  <div class="btns">
-    <button id="btn-remove-last-action">Remove last action</button>
-    <span id="action-list"></span>
+  <div class="row">
+    <p>Action Points: <span id="action-points"></span></p>
+    <h2>Actions:</h2>
+    <pre id="action-list"></pre>
   </div>
 
-  <div class="btns">
+  <div class="row">
     <button id="btn-finish-turn">Finish turn</button>
   </div>
 
@@ -35,17 +36,13 @@
       border: 2px solid steelblue;
     }
 
-    .btns {
+    .row {
       margin-top: 20px;
       display: block;
     }
 
-    .btns button {
+    .row button {
       font-size: 1.5em;
-    }
-
-    #action-points {
-      margin-left: 100px;
     }
   </style>
 </body>

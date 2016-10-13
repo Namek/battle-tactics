@@ -36,6 +36,10 @@ const AP_MOVE = 1
 const AP_PEEK = 2
 const AP_SHOOT = 3
 
+const ACTION_MOVE = 'move'
+const ACTION_PEEK = 'peek'
+const ACTION_SHOOT = 'shoot'
+
 
 let state = {
   map: MAP1,//[by row][by col]
@@ -46,9 +50,18 @@ let state = {
   // [{row, col}]
   players: clone(PLAYERS_START_POSITIONS),
 
-  currentTurn: {
-    playerIndex: 0,
-    actionPoints: ACTION_POINTS
+
+  activePlayerIndex: 0,
+
+  currentTurnByPlayer: {
+    0: {
+      actions: [],
+      actionPoints: ACTION_POINTS
+    },
+    1: {
+      actions: [],
+      actionPoints: ACTION_POINTS
+    }
   }
 }
 
@@ -88,7 +101,7 @@ let drawBackground = () => {
   ctx.fillStyle = '#eee'
   ctx.fillRect(0,0,width,height)
 
-  let playerIndex = state.currentTurn.playerIndex
+  let playerIndex = state.activePlayerIndex
 
   const availableFields = renderCache.availableFieldsByPlayer[playerIndex]
   ctx.fillStyle = 'rgba(188,188,188,1)'
@@ -137,7 +150,7 @@ let drawGrid = () => {
   ctx.stroke()
 
   // mark available fields
-  let playerIndex = state.currentTurn.playerIndex
+  let playerIndex = state.activePlayerIndex
   const availableFields = renderCache.availableFieldsByPlayer[playerIndex]
   ctx.strokeStyle = 'black'
   ctx.lineWidth = 1
@@ -168,7 +181,7 @@ let drawPlayers = () => {
 
     ctx.beginPath()
 
-    if (state.currentTurn.playerIndex === i) {
+    if (state.activePlayerIndex === i) {
       ctx.fillStyle = CURRENT_PLAYER_BACKGROUND
       ctx.fillRect(player.col*gap, player.row*gap, gap, gap)
     }
@@ -180,7 +193,7 @@ let drawPlayers = () => {
 }
 
 function onHoveredFieldChanged(col, row) {
-  let playerIndex = state.currentTurn.playerIndex
+  let playerIndex = state.activePlayerIndex
   let player = state.players[playerIndex]
   let isPlayer = col === player.col && row === player.row
 
@@ -213,7 +226,7 @@ let onMouseLeave = () => {
 let onMouseClick = (x, y) => {
   let col = (x - x%gap)/gap
   let row = (y - y%gap)/gap
-  let playerIndex = state.currentTurn.playerIndex
+  let playerIndex = state.activePlayerIndex
 
   if (isFieldAccessibleToMove(playerIndex, col, row)) {
     movePlayerIfPossible(playerIndex, col, row)
@@ -237,14 +250,14 @@ function onKeyDown(evt) {
 }
 
 function onPeekHovered() {
-  let playerIndex = state.currentTurn.playerIndex
+  let playerIndex = state.activePlayerIndex
   let player = state.players[playerIndex]
 
   updatePlayerPeekCone(playerIndex)
 }
 
 function onPeekLeave() {
-  let playerIndex = state.currentTurn.playerIndex
+  let playerIndex = state.activePlayerIndex
   removePlayerPeekCone(playerIndex)
 }
 
@@ -257,7 +270,14 @@ function onRemoveLastAction() {
 }
 
 function onFinishTurn() {
-  // TODO
+  let newPlayerIndex = (state.activePlayerIndex+1) % 2
+
+  if (newPlayerIndex === 0) {
+    // TODO all player spent action points, simulate turn and then give back action points
+  }
+
+  state.activePlayerIndex = newPlayerIndex
+  updateTurnLogicAndVisuals()
 }
 
 
@@ -318,7 +338,7 @@ let redrawGame = () => {
 }
 
 const updateRayCast = (targetX, targetY) => {
-  const player = state.players[state.currentTurn.playerIndex]
+  const player = state.players[state.activePlayerIndex]
 
   let line = {
     ox: player.col*gap + gap/2,
@@ -367,8 +387,9 @@ function updateVisibilityCone(col, row, frustumCache) {
 
 function updatePlayerAvailableFields(playerIndex) {
   const player = state.players[playerIndex]
+  const playerTurn = state.currentTurnByPlayer[playerIndex]
   const availableFields = renderCache.availableFieldsByPlayer[playerIndex]
-  const maxMoves = Math.floor(state.currentTurn.actionPoints / AP_MOVE)
+  const maxMoves = Math.floor(playerTurn.actionPoints / AP_MOVE)
 
   const left = Math.max(0, player.col - maxMoves)
   const right = Math.min(COLS - 1, player.col + maxMoves)
@@ -382,7 +403,7 @@ function updatePlayerAvailableFields(playerIndex) {
       let path = findPath(player.col, player.row, col, row)
       let neededActionPoints = AP_MOVE * path.length
 
-      if (state.currentTurn.actionPoints >= neededActionPoints) {
+      if (playerTurn.actionPoints >= neededActionPoints) {
         availableFields.push({ col, row })
       }
     }
@@ -469,7 +490,7 @@ function castRayOnBlocks(ox, oy, angle) {
 
 const updateTurnLogicAndVisuals = () => {
   for (let playerIdx = 0; playerIdx < state.players.length; ++playerIdx) {
-    if (playerIdx === state.currentTurn.playerIndex) {
+    if (playerIdx === state.activePlayerIndex) {
       btnPeek.disabled = !canPlayerPeek(playerIdx)
     }
 
@@ -477,7 +498,8 @@ const updateTurnLogicAndVisuals = () => {
     updatePlayerAvailableFields(playerIdx)
   }
 
-  elActionPoints.innerHTML = 'Action Points: ' + state.currentTurn.actionPoints
+  let activePlayerTurn = state.currentTurnByPlayer[state.activePlayerIndex]
+  elActionPoints.innerHTML = 'Action Points: ' + activePlayerTurn.actionPoints
 }
 
 function movePlayerIfPossible(playerIndex, col, row) {
@@ -491,7 +513,8 @@ function movePlayerIfPossible(playerIndex, col, row) {
   player.col = col
   player.row = row
 
-  state.currentTurn.actionPoints -= moveConds.neededActionPoints
+  let activePlayerTurn = state.currentTurnByPlayer[state.activePlayerIndex]
+  activePlayerTurn.actionPoints -= moveConds.neededActionPoints
 }
 
 function isStandableField(col, row) {
@@ -508,9 +531,10 @@ function calcPlayerMoveConditions(playerIndex, col, row) {
 
   if (res.isStandableField) {
     let player = state.players[playerIndex]
+    let activePlayerTurn = state.currentTurnByPlayer[playerIndex]
     res.path = findPath(player.col, player.row, col, row)
     res.neededActionPoints = AP_MOVE * res.path.length
-    res.canMoveTo = state.currentTurn.actionPoints >= res.neededActionPoints
+    res.canMoveTo = activePlayerTurn.actionPoints >= res.neededActionPoints
   }
 
   return res

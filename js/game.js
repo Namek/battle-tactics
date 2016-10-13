@@ -2,9 +2,16 @@
 let canvas = document.getElementById('app')
 let ctx = canvas.getContext('2d')
 
-const btnPeek = document.querySelector('#btn-peek')
-const btnSpot = document.querySelector('#btn-spot')
-const elActionPoints = document.querySelector('#action-points')
+function $d(query) {
+  return document.querySelector(query)
+}
+
+const btnPeek = $d('#btn-peek')
+const btnSpot = $d('#btn-spot')
+const btnRemoveLastAction = $d('#btn-remove-last-action')
+const btnFinishTurn = $d('#btn-finish-turn')
+const elActionPoints = $d('#action-points')
+const elActionList = $d('#action-list')
 
 const gap = 30
 const VISIBILITY_ANGLE = 90
@@ -206,13 +213,11 @@ let onMouseLeave = () => {
 let onMouseClick = (x, y) => {
   let col = (x - x%gap)/gap
   let row = (y - y%gap)/gap
+  let playerIndex = state.currentTurn.playerIndex
 
-  if (canMoveTo(col, row)) {
-    let player = state.players[state.currentTurn.playerIndex]
-    player.col = col
-    player.row = row
-
-    updateTurnLogic()
+  if (isFieldAccessibleToMove(playerIndex, col, row)) {
+    movePlayerIfPossible(playerIndex, col, row)
+    updateTurnLogicAndVisuals()
   }
 
 /*
@@ -245,6 +250,14 @@ function onPeekLeave() {
 
 function onPeek() {
   // TODO spend action points
+}
+
+function onRemoveLastAction() {
+  // TODO
+}
+
+function onFinishTurn() {
+  // TODO
 }
 
 
@@ -454,7 +467,7 @@ function castRayOnBlocks(ox, oy, angle) {
   return tracer.setupXY(ox, oy, rotX, rotY).getHit()
 }
 
-const updateTurnLogic = () => {
+const updateTurnLogicAndVisuals = () => {
   for (let playerIdx = 0; playerIdx < state.players.length; ++playerIdx) {
     if (playerIdx === state.currentTurn.playerIndex) {
       btnPeek.disabled = !canPlayerPeek(playerIdx)
@@ -467,24 +480,44 @@ const updateTurnLogic = () => {
   elActionPoints.innerHTML = 'Action Points: ' + state.currentTurn.actionPoints
 }
 
-function canMoveTo(col, row) {
-  return !isPointWall(col, row) && !_(state.players).some({ col, row })
-}
+function movePlayerIfPossible(playerIndex, col, row) {
+  let moveConds = calcPlayerMoveConditions(playerIndex, col, row)
 
-function isFieldAccessibleToMove(playerIndex, col, row) {
-  if (!canMoveTo(col, row)) {
+  if (!moveConds.canMoveTo) {
     return false
   }
 
   let player = state.players[playerIndex]
-  let path = findPath(player.col, player.row, col, row)
+  player.col = col
+  player.row = row
 
-  if (path.length === 0) {
-    return false
+  state.currentTurn.actionPoints -= moveConds.neededActionPoints
+}
+
+function isStandableField(col, row) {
+  return !isPointWall(col, row) && !_(state.players).some({ col, row })
+}
+
+function calcPlayerMoveConditions(playerIndex, col, row) {
+  let res = {
+    isStandableField: isStandableField(col, row),
+    path: null,
+    neededActionPoints: 0,
+    canMoveTo: false
   }
 
-  let neededActionPoints = AP_MOVE * path.length
-  return state.currentTurn.actionPoints >= neededActionPoints
+  if (res.isStandableField) {
+    let player = state.players[playerIndex]
+    res.path = findPath(player.col, player.row, col, row)
+    res.neededActionPoints = AP_MOVE * res.path.length
+    res.canMoveTo = state.currentTurn.actionPoints >= res.neededActionPoints
+  }
+
+  return res
+}
+
+function isFieldAccessibleToMove(playerIndex, col, row) {
+  return calcPlayerMoveConditions(playerIndex, col, row).canMoveTo
 }
 
 function canPlayerPeek(playerIndex) {
@@ -616,14 +649,22 @@ function findPath(colFrom, rowFrom, colTo, rowTo) {
 }
 
 
-updateTurnLogic()
+updateTurnLogicAndVisuals()
 redrawGame()
 
-canvas.addEventListener('mousemove', evt => onMouseMove(evt.layerX, evt.layerY))
-canvas.addEventListener('mouseleave', evt => onMouseLeave())
-canvas.addEventListener('click', evt => onMouseClick(evt.layerX, evt.layerY))
-document.addEventListener('keydown', evt => onKeyDown(evt))
+;(() => {
+  function $l(el, eventType, listener) {
+    el.addEventListener(eventType, listener)
+  }
 
-btnPeek.addEventListener('mouseenter', evt => onPeekHovered())
-btnPeek.addEventListener('mouseleave', evt => onPeekLeave())
-btnPeek.addEventListener('click', evt => onPeek())
+  $l(canvas, 'mousemove', evt => onMouseMove(evt.layerX, evt.layerY))
+  $l(canvas, 'mouseleave', evt => onMouseLeave())
+  $l(canvas, 'click', evt => onMouseClick(evt.layerX, evt.layerY))
+  $l(document, 'keydown', evt => onKeyDown(evt))
+
+  $l(btnPeek, 'mouseenter', evt => onPeekHovered())
+  $l(btnPeek, 'mouseleave', evt => onPeekLeave())
+  $l(btnPeek, 'click', evt => onPeek())
+  $l(btnRemoveLastAction, 'click', evt => onRemoveLastAction())
+  $l(btnFinishTurn, 'click', evt => onFinishTurn())
+})()

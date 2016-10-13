@@ -33,15 +33,20 @@ const ENEMY_COLOR = 'red'
 const CURRENT_PLAYER_BACKGROUND = 'yellow'
 
 const MAX_ACTION_POINTS = 5
-const AP_WAIT = 0
+const AP_WAIT = 1
 const AP_MOVE = 1
 const AP_PEEK = 2
 const AP_SHOOT = 3
+
+btnWait.title = `cost: ${AP_WAIT} AP`
+btnPeek.title = `cost: ${AP_PEEK} AP`
+btnFire.title = `cost: ${AP_SHOOT} AP`
 
 const ACTION_MOVE = 'move'
 const ACTION_PEEK = 'peek'
 const ACTION_SHOOT = 'shoot'
 const ACTION_WAIT = 'wait'
+const ACTION_IDLE = 'idle' // ACTION_WAIT is converted to this one 
 
 const actionToCost = {
   [ACTION_WAIT]: AP_WAIT,
@@ -51,7 +56,11 @@ const actionToCost = {
 }
 
 function calcAvailableActionPoints(playerIndex) {
-  return MAX_ACTION_POINTS - state.currentTurnByPlayer[playerIndex].actions
+  return Math.max(0, MAX_ACTION_POINTS - calcSpentActionPoints(playerIndex))
+}
+
+function calcSpentActionPoints(playerIndex) {
+  return state.currentTurnByPlayer[playerIndex].actions
     .map(action => actionToCost[action.type])
     .reduce((total, points) => total + points, 0)
 }
@@ -64,7 +73,7 @@ let state = {
   enemyPlayerIndex: 1,
 
   // [{row, col}]
-  players: clone(PLAYERS_START_POSITIONS),
+  players: PLAYERS_START_POSITIONS.map(p => Object.assign({ alive: true }, p)),
 
   activePlayerIndex: 0,
 
@@ -318,7 +327,18 @@ function onFinishTurn() {
   let newPlayerIndex = (state.activePlayerIndex+1) % 2
 
   if (newPlayerIndex === 0) {
-    simulateTurn()
+    let {events, deadPlayers, alivePlayers} = simulateTurn()
+
+    // TODO animate events (move, firing, peeking)
+    // TODO optionally, identify dead players, show game over
+    let isGameOver = false
+
+    if (!isGameOver) {
+      // give back all points to the alive players
+      for (let pi of alivePlayers) {
+        state.currentTurnByPlayer[pi].actions.length = 0
+      }
+    }
   }
 
   state.activePlayerIndex = newPlayerIndex
@@ -547,51 +567,55 @@ const updateTurnLogicAndVisuals = () => {
   let activePlayerTurn = state.currentTurnByPlayer[state.activePlayerIndex]
   elActionPoints.innerHTML = calcAvailableActionPoints(state.activePlayerIndex)
 
-  let actionsStr = '', actions = activePlayerTurn.actions
-  for (let ai = 0; ai < MAX_ACTION_POINTS; ++ai) {
-    actionsStr += (ai+1) + ': '
-    actionsStr += ai < actions.length ? actions[ai].type : '*'
-    actionsStr += '\r\n'
+  let spentActionPoints = calcSpentActionPoints(state.activePlayerIndex)
+  let timeline = actionsToTimeline(activePlayerTurn.actions)
+  let timelineStr = ''
+  for (let ti = 0; ti < timeline.length; ++ti) {
+    timelineStr += spentActionPoints === ti ? '&#8677;' : ' '
+    timelineStr += `${ti+1}: `
+    timelineStr += ti < timeline.length ? timeline[ti].type : '*'
+    timelineStr += '\r\n'
   }
-  elActionList.innerHTML = actionsStr
+  elActionList.innerHTML = timelineStr
 }
 
 function simulateTurn() {
-  const players = state.players
-  const playersCount = players.length
+  const allPlayers = state.players
+  const playersCount = allPlayers.length
 
-  let timelineByPlayer = _.range(playersCount)
-    .map(playerIndex => {
-      let timeline = clone(state.currentTurnByPlayer[playerIndex].actions)
+  let alivePlayers = _.range(playersCount)
+    .filter(pi => allPlayers[pi].alive)
 
-      for (let i = timeline.length; i < MAX_ACTION_POINTS; ++i) {
-        let prevAction = i > 0 ? timeline[i-1].type : ACTION_WAIT
-        let newAction = prevAction === ACTION_PEEK || prevAction === ACTION_SHOOT ? prevAction : ACTION_WAIT
-        timeline[i] = {
-          type: newAction
-        }
-      }
+  let deadPlayers = _.range(playersCount)
+    .filter(pi => !allPlayers[pi].alive)
 
-      return timeline
-    })
+  let timelineByPlayer = alivePlayers
+    .map(playerIndex => playerActionsToTimeline(playerIndex))
 
+  let events = []
   let step = 0
+
+  // TODO Note: if player is shooting when enemy is shooting at him too, then both should die
 
   do {
     // 1. mark who is peeking this round
-    let currentPeekers = _.range(playersCount)
+    let currentPeekers = alivePlayers
       .filter(pi => timelineByPlayer[pi][step] === ACTION_PEEK)
 
     // 2. simulate moves/firing
-    for (let pi = 0; pi > playersCount; ++pi) {
+    for (let pi of alivePlayers) {
+      if (currentPeekers.indexOf(pi) >= 0)
+        continue
+
       let timeline = timelineByPlayer[pi]
       let action = timeline[step]
 
-      // TODO check if this player is being spotted (by peek or fire action)
-      // if he's still alive then proceed with moving  
-      // Note: if player is shooting when enemy is shooting at him too, then both should die 
+      // TODO spot other players
+      if (action === ACTION_MOVE || action === ACTION_SHOOT) {
+        
+      }
 
-
+      // TODO do the action here
       if (action === ACTION_MOVE) {
 
       }
@@ -602,6 +626,27 @@ function simulateTurn() {
 
     ++step
   } while (step < MAX_ACTION_POINTS)
+
+  // TODO gather events for animation
+  return { events, deadPlayers, alivePlayers }
+}
+
+function playerActionsToTimeline(playerIndex) {
+  return actionsToTimeline(state.currentTurnByPlayer[playerIndex].actions)
+}
+
+function actionsToTimeline(actions) {
+  let timeline = clone(actions)
+
+  for (let i = timeline.length; i < MAX_ACTION_POINTS; ++i) {
+    let prevAction = i > 0 ? timeline[i-1].type : ACTION_IDLE
+    let newAction = prevAction === ACTION_PEEK || prevAction === ACTION_SHOOT ? prevAction : ACTION_IDLE
+    timeline[i] = {
+      type: newAction
+    }
+  }
+
+  return timeline
 }
 
 function movePlayerIfPossible(playerIndex, col, row) {
@@ -666,7 +711,10 @@ function canPlayerPeek(playerIndex) {
   let player = state.players[playerIndex]
   let walls = findNearPeekableWalls(player.col, player.row)
 
-  return walls.length > 0
+  if (walls.length === 0)
+    return false
+
+  return calcAvailableActionPoints(playerIndex) >= AP_PEEK
 }
 
 const isPointWall = (col, row) => {

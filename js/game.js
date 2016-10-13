@@ -8,6 +8,8 @@ const elActionPoints = document.querySelector('#action-points')
 
 const gap = 30
 const VISIBILITY_ANGLE = 90
+const CONE_LINES_PER_DEGREE = 10
+const RAD_TO_DEG = 180 / Math.PI
 
 const width = COLS * gap
 const height = ROWS * gap
@@ -48,6 +50,10 @@ let renderCache = {
     0: {lines: [], point: {col: state.players[0].col, row: state.players[0].row}},
     1: {lines: [], point: {col: state.players[1].col, row: state.players[1].row}}
   },
+  peekConeCacheByPlayer: {
+    0: {lines: []},
+    1: {lines: []}
+  },
   availableFieldsByPlayer: {
     0: [/*{col, row}*/],
     1: []
@@ -83,6 +89,12 @@ let drawBackground = () => {
     let x = field.col*gap
     let y = field.row*gap
     ctx.fillRect(x, y, gap, gap)
+  }
+
+  ctx.strokeStyle = 'rgba(0,128,144,1)'
+  let peekConeCache = renderCache.peekConeCacheByPlayer[playerIndex]
+  for (let line of peekConeCache.lines) {
+    drawDebugLine(line)
   }
 
   ctx.strokeStyle = 'rgba(112,128,144,1)'
@@ -161,7 +173,11 @@ let drawPlayers = () => {
 }
 
 function onHoveredFieldChanged(col, row) {
-  if (isFieldAccessibleToMove(state.currentTurn.playerIndex, col, row)) {
+  let playerIndex = state.currentTurn.playerIndex
+  let player = state.players[playerIndex]
+  let isPlayer = col === player.col && row === player.row
+
+  if (isPlayer || isFieldAccessibleToMove(playerIndex, col, row)) {
     updatePlayerVisibilityCone(state.playerIndex, col, row)
   }
 }
@@ -212,7 +228,23 @@ let onMouseClick = (x, y) => {
 }
 
 function onKeyDown(evt) {
-  updateRayCast(evt.clientX, evt.clientY)
+  //updateRayCast(evt.clientX, evt.clientY)
+}
+
+function onPeekHovered() {
+  let playerIndex = state.currentTurn.playerIndex
+  let player = state.players[playerIndex]
+
+  updatePlayerPeekCone(playerIndex)
+}
+
+function onPeekLeave() {
+  let playerIndex = state.currentTurn.playerIndex
+  removePlayerPeekCone(playerIndex)
+}
+
+function onPeek() {
+  // TODO spend action points
 }
 
 
@@ -283,15 +315,7 @@ const updateRayCast = (targetX, targetY) => {
   }
   debugShapesPersisting.lines.push(line)
 
-  // TODO possible algorithm:
-  // 1. scan first direction, mark found free (non-block) rect as `current`
-  // 2. go to a position next to the found point
-  // 3. check if the next position is ray casted
-  // 3.1. if yes, then go to 2.
-  // 3.2. if no, then set closest raycasted point as `current`
-
-
-  for (let angle = 0; angle < 360; angle += 1) {
+  for (let angle = 0, diff = 1.0/CONE_LINES_PER_DEGREE; angle < 360; angle += diff) {
     let ox = player.col*gap + gap/2
     let oy = player.row*gap + gap/2
 
@@ -314,7 +338,7 @@ function updateVisibilityCone(col, row, frustumCache) {
   let oy = row*gap + gap/2
 
   frustumCache.lines.length = 0
-  for (let angle = 0; angle < 360; angle += 0.1) {
+  for (let angle = 0, diff = 1.0/CONE_LINES_PER_DEGREE; angle < 360; angle += diff) {
     let hit = castRayOnBlocks(ox, oy, angle)
 
     frustumCache.lines.push({
@@ -350,6 +374,63 @@ function updatePlayerAvailableFields(playerIndex) {
       }
     }
   }
+}
+
+function updatePlayerPeekCone(playerIndex) {
+  const player = state.players[playerIndex]
+  let peekConeCache = renderCache.peekConeCacheByPlayer[playerIndex]
+  return updatePeekCone(peekConeCache, player.col, player.row)
+}
+
+function updatePeekCone(peekConeCache, viewerCol, viewerRow) {
+  peekConeCache.length = 0
+
+  let peekCells = findPeekCells(viewerCol, viewerRow)
+
+  for (let cell of peekCells) {
+    const peekDirX = cell.dirX
+    const peekDirY = cell.dirY
+
+    let peekCellDirX = cell.col - viewerCol
+    let peekCellDirY = cell.row - viewerRow
+
+    let shouldBeginWithMidVec = peekDirY !== 0
+      ? peekDirY !== peekCellDirX
+      : peekDirX === peekCellDirY
+
+    // get angle between midVec or peekDir and vec=[1,0]
+    // where midVec = normalize(peekDir + peekCellDir)
+    let angleStart = shouldBeginWithMidVec
+      ? -Math.atan2((peekDirY + peekCellDirY) / 2, (peekDirX + peekCellDirX) / 2)
+      : -Math.atan2(peekDirY, peekDirX)
+
+    angleStart *= RAD_TO_DEG
+
+    let iterations = 45 * CONE_LINES_PER_DEGREE
+    let angleDiff = 1.0 / CONE_LINES_PER_DEGREE
+
+    let ox = cell.col*gap + gap/2 - (peekDirY !== 0 ? gap / 2 * (cell.col - viewerCol) : 0)
+    let oy = cell.row*gap + gap/2 - (peekDirX !== 0 ? gap/2 * (cell.row - viewerRow) : 0)
+
+    for (let angle = angleStart, i = 0; i < iterations; angle += angleDiff, ++i) {
+      let hit = castRayOnBlocks(ox, oy, angle)
+
+      peekConeCache.lines.push({
+        ox, oy,
+        tx: hit.point.x,
+        ty: hit.point.y
+      })
+    }
+  }
+}
+
+function removePlayerPeekCone(playerIndex) {
+  let peekConeCache = renderCache.peekConeCacheByPlayer[playerIndex]
+  removePeekCone(peekConeCache)
+}
+
+function removePeekCone(peekConeCache) {
+  peekConeCache.lines.length = 0
 }
 
 function _castRayOnBlocks(ox, oy, angle) {
@@ -430,14 +511,16 @@ function findNearPeekableWalls(col, row) {
     if (c.col < 0 || c.row < 0 || c.col >= COLS || c.row >= ROWS)
       return false
 
-    return isPointWall(c.col, c.row) && isCellPeekable(col, row, c.col, c.row)
+    return isPointWall(c.col, c.row) && isWallPeekable(col, row, c.col, c.row)
   })
 }
 
+// a peekable wall is a wall which can be be used to peek behind it.
+//
 // assuming that:
 // 1. given cell has wall
 // 2. viewer point is a neighbour to it
-function isCellPeekable(viewerCol, viewerRow, cellCol, cellRow) {
+function isWallPeekable(viewerCol, viewerRow, cellCol, cellRow) {
   let dirX = cellCol - viewerCol
   let dirY = cellRow - viewerRow
 
@@ -459,6 +542,55 @@ function isCellPeekable(viewerCol, viewerRow, cellCol, cellRow) {
   }
 
   return false
+}
+
+// assuming that:
+// 1. given cell is is peekable
+//
+// @return cells from which rays are to be casted to broaden the visibility cone during Peek
+function findPeekCells(viewerCol, viewerRow) {
+  let peekableWalls = findNearPeekableWalls(viewerCol, viewerRow)
+  let peekCells = []
+
+  for (let w of peekableWalls) {
+    let dirX = w.col - viewerCol
+    let dirY = w.row - viewerRow
+
+    console.assert(Math.abs(dirX) + Math.abs(dirY) === 1)
+
+    if (dirY === 0) { // is the wall to the right or left?
+      if (!isPointWall(w.col, w.row-1)) {
+        peekCells.push({
+          col: viewerCol, row: viewerRow-1,
+          dirX, dirY
+        })
+      }
+
+      if (!isPointWall(w.col, w.row+1)) {
+        peekCells.push({
+          col: viewerCol, row: viewerRow+1,
+          dirX, dirY
+        })
+      }
+    }
+    else { // is the wall above or under viewer?
+      if (!isPointWall(w.col-1, w.row)) {
+        peekCells.push({
+          col: viewerCol-1, row: viewerRow,
+          dirX, dirY
+        })
+      }
+
+      if (!isPointWall(w.col+1, w.row)) {
+        peekCells.push({
+          col: viewerCol+1, row: viewerRow,
+          dirX, dirY
+        })
+      }
+    }
+  }
+
+  return peekCells
 }
 
 // if at the point itself is a wall then return false
@@ -491,3 +623,7 @@ canvas.addEventListener('mousemove', evt => onMouseMove(evt.layerX, evt.layerY))
 canvas.addEventListener('mouseleave', evt => onMouseLeave())
 canvas.addEventListener('click', evt => onMouseClick(evt.layerX, evt.layerY))
 document.addEventListener('keydown', evt => onKeyDown(evt))
+
+btnPeek.addEventListener('mouseenter', evt => onPeekHovered())
+btnPeek.addEventListener('mouseleave', evt => onPeekLeave())
+btnPeek.addEventListener('click', evt => onPeek())

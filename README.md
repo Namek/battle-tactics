@@ -1,8 +1,8 @@
-## Battle Tactics
+# Battle Tactics
 
-Turn-based game where units move between corners, peek and fire.
+Turn-based game prototype where units move between corners, peek and fire.
 
-# Rules
+## Rules
 
 There are 4 actions:
 
@@ -17,7 +17,7 @@ Every action has a cost of **action points**.
 For a longer peek there is a path rather than single point.
 
 
-# Simulation
+## Simulation
 
 All actions are equal to one or more steps. **Move** is always 1 step, however **peeking** and **firing** are enabled until other action starts or turn ends.
 

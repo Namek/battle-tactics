@@ -38,5 +38,5 @@ More detailed - on every step simulate actions for each unit:
     - if enemy units are shooting then the closest one hits the unit and takes the point
 
   - fire:
-    - take down any spotted unit on current step
+    - take down the closest spotted unit on current step
     - if enemy unit is firing at us at the same time then both units are down

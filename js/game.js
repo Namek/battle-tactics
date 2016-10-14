@@ -318,7 +318,7 @@ function onPeek() {
 function onFire() {
   let currentTurn = state.currentTurnByPlayer[state.activePlayerIndex]
   currentTurn.actions.push({
-    type: ACTION_FIRE
+    type: ACTION_SHOOT
   })
   updateTurnLogicAndVisuals()
 }
@@ -330,14 +330,18 @@ function onFinishTurn() {
     let {events, deadPlayers, alivePlayers} = simulateTurn()
 
     // TODO animate events (move, firing, peeking)
-    // TODO optionally, identify dead players, show game over
-    let isGameOver = false
+    let isGameOver = alivePlayers.length <= 1
 
     if (!isGameOver) {
       // give back all points to the alive players
       for (let pi of alivePlayers) {
         state.currentTurnByPlayer[pi].actions.length = 0
       }
+    }
+    else {
+      window.alert(`Player ${alivePlayers[0]} has won!`)
+
+      // TODO reset the game
     }
   }
 
@@ -483,34 +487,24 @@ function updatePlayerPeekCone(playerIndex) {
 }
 
 function updatePeekCone(peekConeCache, viewerCol, viewerRow) {
-  peekConeCache.length = 0
+  peekConeCache.lines.length = 0
 
   let peekCells = findPeekCells(viewerCol, viewerRow)
 
   for (let cell of peekCells) {
-    const peekDirX = cell.dirX
-    const peekDirY = cell.dirY
+    const params = calcPeekPointParams(viewerCol, viewerRow, cell)
 
-    let peekCellDirX = cell.col - viewerCol
-    let peekCellDirY = cell.row - viewerRow
+    let shouldBeginWithMidVec = params.peekDirY !== 0
+      ? params.peekDirY !== params.peekCellDirX
+      : params.peekDirX === params.peekCellDirY
 
-    let shouldBeginWithMidVec = peekDirY !== 0
-      ? peekDirY !== peekCellDirX
-      : peekDirX === peekCellDirY
-
-    // get angle between midVec or peekDir and vec=[1,0]
-    // where midVec = normalize(peekDir + peekCellDir)
-    let angleStart = shouldBeginWithMidVec
-      ? -Math.atan2((peekDirY + peekCellDirY) / 2, (peekDirX + peekCellDirX) / 2)
-      : -Math.atan2(peekDirY, peekDirX)
-
+    let angleStart = shouldBeginWithMidVec ? params.midVecAngle : params.peekDirAngle
     angleStart *= RAD_TO_DEG
 
     let iterations = 45 * CONE_LINES_PER_DEGREE
     let angleDiff = 1.0 / CONE_LINES_PER_DEGREE
 
-    let ox = cell.col*gap + gap/2 - (peekDirY !== 0 ? gap / 2 * (cell.col - viewerCol) : 0)
-    let oy = cell.row*gap + gap/2 - (peekDirX !== 0 ? gap/2 * (cell.row - viewerRow) : 0)
+    const ox = params.ox, oy = params.oy
 
     for (let angle = angleStart, i = 0; i < iterations; angle += angleDiff, ++i) {
       let hit = castRayOnBlocks(ox, oy, angle)
@@ -531,6 +525,29 @@ function removePlayerPeekCone(playerIndex) {
 
 function removePeekCone(peekConeCache) {
   peekConeCache.lines.length = 0
+}
+
+function calcPeekPointParams(viewerCol, viewerRow, peekCell) {
+  const peekDirX = peekCell.dirX
+  const peekDirY = peekCell.dirY
+
+  let peekCellDirX = peekCell.col - viewerCol
+  let peekCellDirY = peekCell.row - viewerRow
+
+  // get angle between midVec / peekDir and vec=[1,0]
+  // where midVec = normalize(peekDir + peekCellDir)
+  let midVecAngle = -Math.atan2((peekDirY + peekCellDirY) / 2, (peekDirX + peekCellDirX) / 2)
+  let peekDirAngle = -Math.atan2(peekDirY, peekDirX)
+
+  let ox = peekCell.col*gap + gap/2 - (peekDirY !== 0 ? gap / 2 * (peekCell.col - viewerCol) : 0)
+  let oy = peekCell.row*gap + gap/2 - (peekDirX !== 0 ? gap/2 * (peekCell.row - viewerRow) : 0)
+
+  return {
+    peekDirX, peekDirY,
+    peekCellDirX, peekCellDirY,
+    midVecAngle, peekDirAngle,
+    ox, oy
+  }
 }
 
 function _castRayOnBlocks(ox, oy, angle) {
@@ -554,6 +571,25 @@ function castRayOnBlocks(ox, oy, angle) {
   return tracer.setupXY(ox, oy, rotX, rotY).getHit()
 }
 
+function pointsToNormVector(x1, y1, x2, y2) {
+  let dirX = x2 - x1
+  let dirY = y2 - y1
+  let len = dirX*dirX + dirY*dirY
+  dirX /= len
+  dirY /= len
+
+  return { dirX, dirY, len }
+}
+
+function vectorToAngle(dirX, dirY) {
+  return -Math.atan2(dirY, dirX) * RAD_TO_DEG
+}
+
+function calcDirectedAngleBetweenPoints(x1, y1, x2, y2) {
+  let vec = pointsToNormVector(x1, y1, x2, y2)
+  return vectorToAngle(vec.dirX, vec.dirY)
+}
+
 const updateTurnLogicAndVisuals = () => {
   for (let playerIdx = 0; playerIdx < state.players.length; ++playerIdx) {
     if (playerIdx === state.activePlayerIndex) {
@@ -561,6 +597,7 @@ const updateTurnLogicAndVisuals = () => {
     }
 
     updatePlayerVisibilityCone(playerIdx)
+    updatePlayerPeekCone(playerIdx)
     updatePlayerAvailableFields(playerIdx)
   }
 
@@ -598,37 +635,156 @@ function simulateTurn() {
   // TODO Note: if player is shooting when enemy is shooting at him too, then both should die
 
   do {
-    // 1. mark who is peeking this round
+    let stepEvents = []
+
+    // 1. mark who is peeking this round and find out who sees who before any movement
     let currentPeekers = alivePlayers
-      .filter(pi => timelineByPlayer[pi][step] === ACTION_PEEK)
+      .filter(pi => timelineByPlayer[pi][step].type === ACTION_PEEK)
 
-    // 2. simulate moves/firing
+    let whoSeesWho = {}
+
     for (let pi of alivePlayers) {
-      if (currentPeekers.indexOf(pi) >= 0)
-        continue
+      whoSeesWho[pi] = spotEnemies(pi, alivePlayers)
+    }
 
+    // 2. peek over corner for other players and mark seen enemies
+    for (let pi of currentPeekers) {
+      stepEvents.push({
+        type: 'ENEMY_SPOTTED',
+        playerIndex: pi,
+        enemies: whoSeesWho[pi]
+      })
+    }
+
+    // 3. simulate firing
+    for (let pi of alivePlayers) {
+      let player = allPlayers[pi]
       let timeline = timelineByPlayer[pi]
       let action = timeline[step]
 
-      // TODO spot other players
-      if (action === ACTION_MOVE || action === ACTION_SHOOT) {
-        
-      }
+      if (action.type === ACTION_SHOOT) {
+        let visibleEnemies = whoSeesWho[pi]
 
-      // TODO do the action here
-      if (action === ACTION_MOVE) {
+        if (visibleEnemies.length > 0) {
+          let enemy = _(visibleEnemies).minBy('distance')
 
-      }
-      else if (action === ACTION_SHOOT) {
+          stepEvents.push({
+            type: 'TOOK_DOWN_ENEMY',
+            enemy
+          })
 
+          deadPlayers.push(enemy.playerIndex)
+          alivePlayers = alivePlayers.filter(pi => pi !== enemy.playerIndex)
+        }
       }
     }
 
+    // 4. simulate movement
+    for (let pi of alivePlayers) {
+      let player = allPlayers[pi]
+      let timeline = timelineByPlayer[pi]
+      let action = timeline[step]
+
+      if (action.type === ACTION_MOVE) {
+        stepEvents.push({
+          type: 'PLAYER_MOVED',
+          colFrom: player.col,
+          rowFrom: player.row,
+          colTo: action.col,
+          rowTo: action.row
+        })
+
+        player.col = action.col
+        player.row = action.row
+      }
+    }
+
+    events.push(stepEvents)
+    stepEvents = []
+
+    // 5. peek/shoot again after some enemies have moved
+    for (let pi of alivePlayers) {
+      let player = allPlayers[pi]
+      let timeline = timelineByPlayer[pi]
+      let action = timeline[step]
+
+      if (action.type === ACTION_SHOOT) {
+        let visibleEnemies = whoSeesWho[pi]
+          .filter(pi => alivePlayers.indexOf(pi) >= 0)
+
+        if (visibleEnemies.length > 0) {
+          let enemy = _(visibleEnemies).minBy('distance')
+
+          stepEvents.push({
+            type: 'TOOK_DOWN_ENEMY',
+            enemy
+          })
+
+          deadPlayers.push(enemy.playerIndex)
+          alivePlayers = alivePlayers.filter(pi => pi !== enemy.playerIndex)
+        }
+      }
+    }
+
+    events.push(stepEvents)
     ++step
   } while (step < MAX_ACTION_POINTS)
 
-  // TODO gather events for animation
   return { events, deadPlayers, alivePlayers }
+}
+
+function spotEnemies(playerIndex, alivePlayers) {
+  const allPlayers = state.players
+  let player = allPlayers[playerIndex]
+  let ox = player.col*gap + gap/2
+  let oy = player.row*gap + gap/2
+
+  let spotted = []
+
+  for (let epi of alivePlayers) {
+    if (epi === playerIndex)
+      continue
+
+    let enemy = allPlayers[epi]
+    let eox = enemy.col*gap + gap/2
+    let eoy = enemy.row*gap + gap/2
+
+    // 1. try spotting enemies standing on the center of field
+    let enemyDir = pointsToNormVector(ox, oy, eox, eoy)
+    let hit = castRayOnBlocks(ox, oy, vectorToAngle(enemyDir))
+    let hitDir = pointsToNormVector(ox, oy, hit.point.x, hit.point.y)
+
+    let distance = enemyDir.len
+    let wasEnemySpotted = hitDir.len > distance
+
+    if (!wasEnemySpotted) {
+      // 2. take a chance behind the corner
+      let peekCells = findPeekCells(player.col, player.row)
+      for (let cell of peekCells) {
+        const peekParams = calcPeekPointParams(player.col, player.row, cell)
+        let ox = peekParams.ox
+        let oy = peekParams.oy
+
+        enemyDir = pointsToNormVector(ox, oy, eox, eoy)
+        hit = castRayOnBlocks(ox, oy, vectorToAngle(enemyDir))
+        hitDir = pointsToNormVector(ox, oy, hit.point.x, hit.point.y)
+
+        distance = enemyDir.len
+        wasEnemySpotted = hitDir.len > distance
+      }
+    }
+
+    if (wasEnemySpotted) {
+      spotted.push({
+        playerIndex: epi,
+        distance,
+        col: enemy.col,
+        row: enemy.col
+      })
+    }
+  }
+
+  return spotted
 }
 
 function playerActionsToTimeline(playerIndex) {
